@@ -1,0 +1,484 @@
+// include the library code:
+#include <LiquidCrystal.h>
+
+// initialize the library with the numbers of the interface pins
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+//globals for buttons
+int button1, button2;
+  
+//globals for LEDs
+int led1, led2, led3;
+
+//global for buzzer
+int buzzer;
+
+//global for a line
+byte line[8] = 
+{
+  B00100,
+  B00100,
+  B00100,
+  B00100,
+  B00100,
+  B00100,
+  B00100,
+  B00100
+};
+
+//globals for time
+long currTime, future, startTime;
+
+//columns of note + cursor
+int oCol, cCol;
+
+//number of notes missed
+int numMissed;
+
+//beatmap for twinkle
+String t0Whole, t0Part;
+String t1Whole, t1Part;
+
+//globals for buttons
+boolean b1Pressed, b2Pressed;
+
+//booleans for start menu + end screens
+boolean showEnd, won, tryAgain, showMenu, showCred;
+
+void setup()
+{
+  //uncomment to print things (checkButtons)
+  Serial.begin(9600);
+  
+  // set up the LCD's number of columns and rows:
+  lcd.begin(16, 2);
+  
+  //initializing globals for buttons, LEDs, buzzer
+  button2 = A0;
+  button1 = A2;
+  led1 = A3;
+  led2 = A4;
+  led3 = A5;
+  buzzer = 9;
+  
+  pinMode(button1, INPUT);
+  pinMode(button2, INPUT);
+  pinMode(led1, OUTPUT);
+  pinMode(led2, OUTPUT);
+  pinMode(led3, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+
+  //connecting the note char to the LCD
+  lcd.createChar(0, line); //this means that the first image is now known as 0
+
+  currTime = 0;
+  future = 500;
+
+  oCol = 15;
+  cCol = 0;
+
+  t0Whole = "OO  O ==  OO O    OO  ==  OO  ==OO  O ==  OO O  ";
+  t0Part = t0Whole.substring(0, 16);
+  
+  t1Whole = "  OO O  OO  O ==OO  OO  OO  OO    OO O  OO  O ==";
+  t1Part = t1Whole.substring(0, 16);
+
+  b1Pressed = false;
+  b2Pressed = false;
+  numMissed = 0;
+  showEnd = true;
+  won = false;
+  tryAgain = true;
+  showMenu = true;
+  startTime = millis();
+  showCred = false;
+}
+
+void loop()
+{
+  fullTwinkle();
+}
+
+//--- basic methods to test wiring ---
+
+void allOn()
+{
+  digitalWrite(led1, HIGH);
+  digitalWrite(led2, HIGH);
+  digitalWrite(led3, HIGH);
+}
+
+void checkButtons()
+{
+  int b1State = digitalRead(button1);
+  int b2State = digitalRead(button2);
+  
+  Serial.print("b1State = ");
+  Serial.print(b1State);
+  Serial.print(", b2State = ");
+  Serial.println(b2State);
+}
+
+void testLCD()
+{
+  lcd.setCursor(0,0);
+  lcd.print("Hello world!");
+}
+
+void makeNoise()
+{
+  tone(buzzer, 293);
+}
+
+void testChar()
+{
+  lcd.setCursor(0,0);
+  lcd.write(byte(0));
+  lcd.print("|");
+  lcd.setCursor(1,1);
+  lcd.print("|");
+}
+
+//--- real methods used ---
+
+void twinkleNotes()
+{
+  currTime = millis();
+  
+  if(currTime >= future)
+  {
+    lcd.clear();
+    future+=500;
+    
+    if(oCol > 0)
+      oCol--;
+    else //oCol is 0
+    {
+      //handling row 0
+      t0Whole = t0Whole.substring(1);
+      
+      if(t0Whole.length() > 16)
+        t0Part = t0Whole.substring(0, 16);
+      else
+        t0Part = t0Whole;
+
+      //handling row 1
+      t1Whole = t1Whole.substring(1);
+
+      if(t1Whole.length() > 16)
+        t1Part = t1Whole.substring(0, 16);
+      else
+        t1Part = t1Whole;
+    }
+  }
+
+  //displaying the notes
+  lcd.setCursor(oCol, 0);
+  lcd.print(t0Part);
+  
+  lcd.setCursor(oCol, 1);
+  lcd.print(t1Part);
+
+  //displaying a line across
+  lcd.setCursor(1, 0);
+  lcd.write(byte(0));
+
+  lcd.setCursor(1, 1);
+  lcd.write(byte(0));
+  
+  playTwinkle();
+}
+
+void twinkleButtons()
+{
+  int b1State = digitalRead(button1);
+  int b2State = digitalRead(button2);
+
+  char currNote0 = t0Part.charAt(1); //changes
+  char currNote1 = t1Part.charAt(1);
+  
+  long currTime = millis();
+
+  //handling row 0
+  if(b1State == 1)
+  {
+    if(currTime >= startTime + 7500) //notes have reached the end
+    {
+      if(currNote0 != ' ')
+        b1Pressed = true;
+    }
+  }
+
+  //handling row 1
+  if(b2State == 1)
+  {
+    if(currTime >= startTime + 7500)
+    {
+      if(currNote1 != ' ')
+        b2Pressed = true;
+    }
+  }
+  
+  if(currTime >= future && currTime >= startTime + 7500) //changes to the next note
+  {
+    if(!b1Pressed && currNote0 != ' ' || !b2Pressed && currNote1 != ' ')
+      numMissed++;
+    
+    b1Pressed = false;
+    b2Pressed = false;
+  }
+  
+  someOff(numMissed);
+}
+
+void fullTwinkle()
+{
+  if(showMenu)
+  {
+    menu();
+  }
+  else if(showCred)
+  {
+    credits();
+  }
+  else if(numMissed < 3 && millis() > startTime + 31000) //won
+  {
+    //need to have showEnd happen once
+    if(millis() < startTime + 31100)
+      showEnd = true;
+      
+    noTone(buzzer);
+    won = true;
+    chooseEnd();
+  }
+  else if(numMissed < 3) //playing
+  {
+    twinkleNotes();
+    twinkleButtons();
+  }
+  else if(numMissed == 3) //just when user loses
+  {
+    lcd.clear();
+    numMissed++;
+    showEnd = true;
+  }
+  else //lost
+  {
+    noTone(buzzer);
+    won = false;
+    chooseEnd();
+  }
+}
+
+void chooseEnd()
+{
+  //displaying a message
+  if(showEnd)
+  {
+    if(won)
+    {
+      lcd.setCursor(0,0);
+      lcd.print("   YOU WON!!!");
+      lcd.setCursor(0,1);
+      lcd.print("  Show credits");
+      showCred = true;
+    }
+    else
+    {
+      lcd.setCursor(2,0);
+      lcd.print("You lost ):");
+      lcd.setCursor(0,1);
+      lcd.print("Try again | Cred");
+    }
+    
+    showEnd = false;
+  }
+    
+  int b1State = digitalRead(button1);
+  int b2State = digitalRead(button2);
+
+  //button1 handles switching the cursor position
+  if(!won && b1State == 1 && !b1Pressed)
+  {
+    tryAgain = !tryAgain;
+    
+    if(tryAgain)
+      cCol = 0;
+    else
+      cCol = 12;
+      
+    b1Pressed = true;
+  }
+  else if(b1State == 0)
+  {
+    b1Pressed = false;
+  }
+
+  //button2 handles choosing what to do next
+  if(b2State == 1)
+  {
+    if(tryAgain && !won)
+    {
+      resetSong();
+    }
+    else //go to credits
+    {
+      lcd.clear();
+      showCred = true;
+    }
+  }
+
+  lcd.setCursor(cCol, 1); //choosing is enabled
+  lcd.cursor();
+}
+
+void menu()
+{
+  int b2State = digitalRead(button2);
+  
+  lcd.setCursor(0, 0);
+  lcd.print("  Rhythm Game");
+  lcd.setCursor(0, 1);
+  lcd.print("Press B2 to play");
+
+  if(b2State == 1)
+  {
+    showMenu = false;
+    resetSong();
+  }
+}
+
+void resetSong()
+{
+  startTime = millis();
+  lcd.clear();
+  lcd.noCursor();
+  numMissed = 0;
+
+  //resetting song notes
+  oCol = 15;
+  future = startTime + 500;
+  t0Whole = "OO  O ==  OO O    OO  ==  OO  ==OO  O ==  OO O  ";
+  t0Part = t0Whole.substring(0, 16);
+  t1Whole = "  OO O  OO  O ==OO  OO  OO  OO    OO O  OO  O ==";
+  t1Part = t1Whole.substring(0, 16);
+}
+
+void credits()
+{
+  lcd.setCursor(0,0);
+  lcd.print("Thx for playing!");
+  lcd.setCursor(0,1);
+  lcd.print("By Stefani H. :)");
+  lcd.noCursor();
+}
+
+//--- helper methods ---
+
+void someOff(int num)
+{
+  if(num >= 1)
+    digitalWrite(led1, LOW);
+  else
+    digitalWrite(led1, HIGH);
+    
+  if(num >= 2)
+    digitalWrite(led2, LOW);
+  else
+    digitalWrite(led2, HIGH);
+    
+  if(num >= 3)
+    digitalWrite(led3, LOW);
+  else
+    digitalWrite(led3, HIGH);
+}
+
+void allOff()
+{
+  digitalWrite(led1, LOW);
+  digitalWrite(led1, LOW);
+  digitalWrite(led3, LOW);
+}
+
+void playTwinkle()
+{
+  //whole = 2000
+  //each quarter note = 500 ms
+  //each quarter w dot = 750
+  //each eighth = 250;
+
+  //_4
+  int c = 262;
+  int g = 392;
+  int a = 440;
+  int f = 349;
+  int e = 330;
+  int d = 294;
+  
+  int tones[] = {0, //1
+                 c,   0,   c,   g,  0,  g,   a,   0,   a,    g,   f,  0,  f,    e,  0,  e,   d,   0,  d,    c, //20
+                 g, 0, g, f, 0, f, e, 0, e, d, g, 0, g, f, 0, f, e, 0, e, d, //20
+                 c,   0,   c,   g,  0,  g,   a,   0,   a,    g,   f,  0,  f,    e,  0,  e,   d,   0,  d,    c}; //20
+  int durs[] = {startTime + 7000, //1
+                475, 25, 500, 475, 25, 500, 475, 25, 500, 1000, 475, 25, 500, 475, 25, 500, 475, 25, 500, 1000, //20
+                475, 25, 500, 475, 25, 500, 475, 25, 500, 1000, 475, 25, 500, 450, 50, 500, 450, 50, 500, 1000, //20
+                475, 25, 500, 475, 25, 500, 475, 25, 500, 1000, 475, 25, 500, 450, 50, 500, 450, 50, 500, 1000}; //20
+
+  playTones(buzzer, tones, durs, 61);
+  //length of song = 24,000 ms
+}
+
+/**
+ * playTones:  Plays an array of tones.  
+ * Each for a specified duration.
+ * The Arduino can do something else while calling this method.
+ * 
+ * Precondtions:  1)  tones and durations have the same number of elements
+ *                2)  elements of durations are in milliseconds
+ *                3)  length is the length of tones and durations
+ */
+void playTones(int buzz, int tones[], int durations[], int length)
+{
+  if(sizeof(tones)/sizeof(int) == sizeof(durations)/sizeof(int))
+  {
+    long sum = 0;
+    for(int i = 0; i<length;i++)
+    {
+      sum += durations[i];
+    }
+    //calculate which index we should be working with
+    int musicI = 0;
+    for(musicI = 0; millis()%sum>=sumUntil(durations,musicI,length);musicI++)//super bananas
+    {    }
+    if(millis()%sum<sumUntil(durations,musicI,length))    //bananas
+    {
+      if(tones[musicI]!= 0)
+      {
+        tone(buzz, tones[musicI]);
+      }
+      else
+      {
+        noTone(buzz);
+      }
+    }
+  }
+}
+/**
+ * sumUntil:  returns the sum of all the values from 0 to index 
+ * inside of arr
+ * This is a helper method for playTones
+ * 
+ * Precondtions:  1)  0<=index<=length-1
+ *                2)  length is the length of arr
+ */
+long sumUntil(int arr[], int index,int length)
+{
+  long sum = 0;
+  for(int i = 0;i<=index;i++)
+  {
+    sum+=arr[i];
+  }
+  return sum;
+}
+
+  
